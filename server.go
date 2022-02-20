@@ -11,6 +11,14 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
+type LocalsKey string
+
+const (
+	BotLocalsKey        = "bot"
+	RoomLocalsKey       = "room"
+	ClientTypeLocalsKey = "clientType"
+)
+
 // Server is an EasyBot server.
 type Server struct {
 	*fiber.App
@@ -41,8 +49,8 @@ func (server *Server) RouteV1() {
 
 	rooms := bot.Group("/rooms")
 	rooms.Post("", server.CreateRoom)
-	rooms.Get("/:room/messages", server.ReadMessages)
-	rooms.Post("/:room/messages", server.WriteMessages)
+	rooms.Get("/:room/messages", server.RoomMiddleware, server.ReadMessages)
+	rooms.Post("/:room/messages", server.RoomMiddleware, server.WriteMessages)
 }
 
 // CreateBot is a handler for creating a bot.
@@ -62,7 +70,7 @@ func (server *Server) CreateBot(c *fiber.Ctx) error {
 		return fmt.Errorf("create bot: %w", err)
 	}
 	return c.JSON(fiber.Map{
-		IDKey:             bot.ID,
+		"id":              bot.ID,
 		BotNameKey:        bot.Name,
 		BotDescriptionKey: bot.Description,
 		BotAccessKeyKey:   bot.AccessKey,
@@ -88,26 +96,22 @@ func (server *Server) CreateRoom(c *fiber.Ctx) error {
 		return fmt.Errorf("create room: %w", err)
 	}
 	return c.JSON(fiber.Map{
-		IDKey:            room.ID,
+		"id":             room.ID,
 		RoomBotIDKey:     room.BotID,
 		RoomAccessKeyKey: room.AccessKey,
 		CreatedAtKey:     room.CreatedAt,
 	})
 }
 
-// ReadMessages is a handler for reading messages in a room.
-func (server *Server) ReadMessages(c *fiber.Ctx) error {
-	var query struct {
-		Peek bool `query:"peek"`
-	}
-	if err := c.QueryParser(&query); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
-	}
-	return c.JSON(fiber.Map{})
-}
+type ClientType string
 
-// WriteMessages is a handler for writing messages in a room.
-func (server *Server) WriteMessages(c *fiber.Ctx) error {
+const (
+	BotClient  = ClientType("bot")
+	UserClient = ClientType("user")
+)
+
+// RoomMiddleware is a middleware for a room.
+func (server *Server) RoomMiddleware(c *fiber.Ctx) error {
 	botID, err := primitive.ObjectIDFromHex(c.Params("bot"))
 	if err != nil {
 		return fiber.NewError(fiber.StatusNotFound, fmt.Sprintf("bot %s not found", c.Params("bot")))
@@ -129,9 +133,9 @@ func (server *Server) WriteMessages(c *fiber.Ctx) error {
 		}
 		return fmt.Errorf("get bot: %w", err)
 	}
-	var msgType MessageType
+	var clientType ClientType
 	if hdr.AccessKey == bot.AccessKey {
-		msgType = BotMessage
+		clientType = BotClient
 	}
 	room, err := server.db.GetRoom(context.TODO(), roomID)
 	if err != nil || room.BotID != bot.ID {
@@ -141,17 +145,76 @@ func (server *Server) WriteMessages(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusNotFound, fmt.Sprintf("room %s not found", roomID))
 	}
 	if hdr.AccessKey == room.AccessKey {
-		msgType = UserMessage
+		clientType = UserClient
 	}
-	if msgType == "" {
+	if clientType == "" {
 		return fiber.NewError(fiber.StatusUnauthorized, "unauthorized")
 	}
+	c.Locals(BotLocalsKey, bot)
+	c.Locals(RoomLocalsKey, room)
+	c.Locals(ClientTypeLocalsKey, clientType)
+	return c.Next()
+}
+
+type MessageResponse struct {
+	ID        primitive.ObjectID `json:"id"`
+	RoomID    primitive.ObjectID `json:"roomID"`
+	Type      MessageType        `json:"type"`
+	ReplyTo   primitive.ObjectID `json:"replyTo,omitempty"`
+	Text      string             `json:"text"`
+	Read      bool               `json:"read"`
+	CreatedAt time.Time          `json:"createdAt"`
+}
+
+// ReadMessages is a handler for reading messages in a room.
+func (server *Server) ReadMessages(c *fiber.Ctx) error {
+	var query struct {
+		Peek bool `query:"peek"`
+	}
+	if err := c.QueryParser(&query); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	room := c.Locals(RoomLocalsKey).(Room)
+	clientType := c.Locals(ClientTypeLocalsKey).(ClientType)
+	var msgType MessageType
+	switch clientType {
+	case BotClient:
+		msgType = UserMessage
+	case UserClient:
+		msgType = BotMessage
+	}
+	msgs, err := server.db.GetMessages(context.TODO(), room.ID, msgType)
+	if err != nil {
+		return fmt.Errorf("get messages: %w", err)
+	}
+	if err := server.db.ReadMessages(context.TODO(), msgs); err != nil {
+		return fmt.Errorf("read messages: %w", err)
+	}
+	resp := make([]MessageResponse, len(msgs))
+	for i, msg := range msgs {
+		resp[i] = MessageResponse{
+			ID:        msg.ID,
+			RoomID:    msg.RoomID,
+			Type:      msg.Type,
+			ReplyTo:   msg.ReplyTo,
+			Text:      msg.Text,
+			Read:      msg.Read,
+			CreatedAt: msg.CreatedAt,
+		}
+	}
+	return c.JSON(resp)
+}
+
+// WriteMessages is a handler for writing messages in a room.
+func (server *Server) WriteMessages(c *fiber.Ctx) error {
 	var body struct {
 		Messages []Message `json:"messages"`
 	}
 	if err := c.BodyParser(&body); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
+	room := c.Locals(RoomLocalsKey).(Room)
+	clientType := c.Locals(ClientTypeLocalsKey).(ClientType)
 	now := time.Now()
 	for i := range body.Messages {
 		replyTo := body.Messages[i].ReplyTo
@@ -167,8 +230,15 @@ func (server *Server) WriteMessages(c *fiber.Ctx) error {
 				return fiber.NewError(fiber.StatusBadRequest, fmt.Sprintf("message %s is already a reply", replyTo))
 			}
 		}
+		var msgType MessageType
+		switch clientType {
+		case BotClient:
+			msgType = BotMessage
+		case UserClient:
+			msgType = UserMessage
+		}
 		body.Messages[i] = Message{
-			RoomID:    roomID,
+			RoomID:    room.ID,
 			Type:      msgType,
 			ReplyTo:   replyTo,
 			Text:      body.Messages[i].Text,
@@ -178,15 +248,6 @@ func (server *Server) WriteMessages(c *fiber.Ctx) error {
 	msgs, err := server.db.CreateMessages(context.TODO(), body.Messages)
 	if err != nil {
 		return fmt.Errorf("create messages: %w", err)
-	}
-	type MessageResponse struct {
-		ID        primitive.ObjectID `json:"id"`
-		RoomID    primitive.ObjectID `json:"roomID"`
-		Type      MessageType        `json:"type"`
-		ReplyTo   primitive.ObjectID `json:"replyTo,omitempty"`
-		Text      string             `json:"text"`
-		Read      bool               `json:"read"`
-		CreatedAt time.Time          `json:"createdAt"`
 	}
 	resp := make([]MessageResponse, len(msgs))
 	for i, msg := range msgs {

@@ -129,6 +129,39 @@ func (db *DB) GetMessage(ctx context.Context, roomID, id primitive.ObjectID) (Me
 	return msg, nil
 }
 
+// GetMessages returns messages with specific type.
+func (db *DB) GetMessages(ctx context.Context, roomID primitive.ObjectID, msgType MessageType) ([]Message, error) {
+	coll := db.Database().Collection(MessageCollectionName)
+	cursor, err := coll.Find(ctx, bson.M{
+		MessageRoomIDKey: roomID,
+		MessageTypeKey:   msgType,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("find: %w", err)
+	}
+	var msgs []Message
+	if err := cursor.All(ctx, &msgs); err != nil {
+		return nil, fmt.Errorf("decode: %w", err)
+	}
+	return msgs, nil
+}
+
+// ReadMessages marks given messages as read.
+func (db *DB) ReadMessages(ctx context.Context, msgs []Message) error {
+	coll := db.Database().Collection(MessageCollectionName)
+	var writes []mongo.WriteModel
+	for _, msg := range msgs {
+		writes = append(writes,
+			mongo.NewUpdateOneModel().
+				SetFilter(bson.M{IDKey: msg.ID}).
+				SetUpdate(bson.M{"$set": bson.M{MessageReadKey: true}}))
+	}
+	if _, err := coll.BulkWrite(ctx, writes); err != nil {
+		return fmt.Errorf("bulk write: %w", err)
+	}
+	return nil
+}
+
 // GetUnreadMessages returns all unread messages in the room.
 func (db *DB) GetUnreadMessages(ctx context.Context, roomID primitive.ObjectID) ([]Message, error) {
 	coll := db.Database().Collection(MessageCollectionName)
