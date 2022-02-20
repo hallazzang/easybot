@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -14,6 +15,7 @@ import (
 // MongoBD collection names.
 const (
 	BotCollectionName     = "bots"
+	RoomCollectionName    = "rooms"
 	MessageCollectionName = "messages"
 )
 
@@ -56,8 +58,90 @@ func (db *DB) CreateBot(ctx context.Context, name, desc string) (Bot, error) {
 	}
 	ret, err := coll.InsertOne(ctx, bot)
 	if err != nil {
-		return Bot{}, fmt.Errorf("insert one: %w", err)
+		return Bot{}, fmt.Errorf("insert: %w", err)
 	}
 	bot.ID = ret.InsertedID.(primitive.ObjectID)
 	return bot, nil
+}
+
+// GetBot returns a bot.
+func (db *DB) GetBot(ctx context.Context, id primitive.ObjectID) (Bot, error) {
+	coll := db.Database().Collection(BotCollectionName)
+	var bot Bot
+	if err := coll.FindOne(ctx, bson.M{IDKey: id}).Decode(&bot); err != nil {
+		return Bot{}, fmt.Errorf("find: %w", err)
+	}
+	return bot, nil
+}
+
+// CreateRoom creates a new room.
+func (db *DB) CreateRoom(ctx context.Context, botID primitive.ObjectID) (Room, error) {
+	coll := db.Database().Collection(RoomCollectionName)
+	room := Room{
+		BotID:     botID,
+		AccessKey: uuid.New().String(),
+		CreatedAt: time.Now(),
+	}
+	ret, err := coll.InsertOne(ctx, room)
+	if err != nil {
+		return Room{}, fmt.Errorf("insert: %w", err)
+	}
+	room.ID = ret.InsertedID.(primitive.ObjectID)
+	return room, nil
+}
+
+// GetRoom returns a room.
+func (db *DB) GetRoom(ctx context.Context, id primitive.ObjectID) (Room, error) {
+	coll := db.Database().Collection(RoomCollectionName)
+	var room Room
+	if err := coll.FindOne(ctx, bson.M{IDKey: id}).Decode(&room); err != nil {
+		return Room{}, fmt.Errorf("find: %w", err)
+	}
+	return room, nil
+}
+
+// CreateMessages creates messages.
+func (db *DB) CreateMessages(ctx context.Context, msgs []Message) ([]Message, error) {
+	coll := db.Database().Collection(MessageCollectionName)
+	var docs []interface{}
+	for _, msg := range msgs {
+		docs = append(docs, msg)
+	}
+	ret, err := coll.InsertMany(ctx, docs)
+	if err != nil {
+		return nil, fmt.Errorf("insert: %w", err)
+	}
+	res := make([]Message, len(msgs))
+	for i, msg := range msgs {
+		msg.ID = ret.InsertedIDs[i].(primitive.ObjectID)
+		res[i] = msg
+	}
+	return res, nil
+}
+
+// GetMessage returns a message.
+func (db *DB) GetMessage(ctx context.Context, roomID, id primitive.ObjectID) (Message, error) {
+	coll := db.Database().Collection(MessageCollectionName)
+	var msg Message
+	if err := coll.FindOne(ctx, bson.M{IDKey: id, MessageRoomIDKey: roomID}).Decode(&msg); err != nil {
+		return Message{}, fmt.Errorf("find: %w", err)
+	}
+	return msg, nil
+}
+
+// GetUnreadMessages returns all unread messages in the room.
+func (db *DB) GetUnreadMessages(ctx context.Context, roomID primitive.ObjectID) ([]Message, error) {
+	coll := db.Database().Collection(MessageCollectionName)
+	cursor, err := coll.Find(ctx, bson.M{
+		MessageRoomIDKey: roomID,
+		MessageReadKey:   false,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("find: %w", err)
+	}
+	var msgs []Message
+	if err := cursor.All(ctx, &msgs); err != nil {
+		return nil, fmt.Errorf("decode: %w", err)
+	}
+	return msgs, nil
 }
