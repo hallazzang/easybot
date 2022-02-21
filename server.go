@@ -18,7 +18,7 @@ const (
 	RoomLocalsKey       = "room"
 	ClientTypeLocalsKey = "clientType"
 
-	AccessKeyHeader = "X-Access-Key"
+	HeaderAccessKey = "X-Access-Key"
 )
 
 // Server is an EasyBot server.

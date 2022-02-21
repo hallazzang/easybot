@@ -1,18 +1,15 @@
 package cmd
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/hallazzang/easybot"
+	"github.com/hallazzang/easybot/client"
 )
 
 func NewEasyBotCmd() *cobra.Command {
@@ -78,28 +75,15 @@ func NewReadCmd() *cobra.Command {
 				return fmt.Errorf("access key must be provided")
 			}
 
-			url := fmt.Sprintf("http://localhost:8000/v1/bots/%s/rooms/%s/messages", botID, roomID)
-			if peek {
-				url += "?peek=true"
-			}
-			req, _ := http.NewRequest("GET", url, nil)
-			req.Header.Set(easybot.AccessKeyHeader, accessKey)
-			resp, err := http.DefaultClient.Do(req)
+			c, err := client.New(accessKey)
 			if err != nil {
-				return fmt.Errorf("http get: %w", err)
+				return fmt.Errorf("new client: %w", err)
 			}
-			defer resp.Body.Close()
-
-			var payload struct {
-				Messages []struct {
-					Text      string
-					CreatedAt time.Time
-				}
+			msgs, err := c.Room(botID, roomID).ReadMessages(peek)
+			if err != nil {
+				return fmt.Errorf("read messages: %w", err)
 			}
-			if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-				return fmt.Errorf("decode payload: %w", err)
-			}
-			for _, msg := range payload.Messages {
+			for _, msg := range msgs {
 				fmt.Printf("[%s] %s\n", msg.CreatedAt.In(time.Local).Format(time.Kitchen), msg.Text)
 			}
 
@@ -130,26 +114,13 @@ func NewWriteCmd() *cobra.Command {
 				return fmt.Errorf("access key must be provided")
 			}
 
-			url := fmt.Sprintf("http://localhost:8000/v1/bots/%s/rooms/%s/messages", botID, roomID)
-			payload, _ := json.Marshal(map[string]interface{}{
-				"messages": []easybot.Message{{Text: text}},
-			})
-			req, _ := http.NewRequest("POST", url, bytes.NewReader(payload))
-			req.Header.Set(easybot.AccessKeyHeader, accessKey)
-			req.Header.Set("Content-Type", "application/json")
-			resp, err := http.DefaultClient.Do(req)
+			c, err := client.New(accessKey)
 			if err != nil {
-				return fmt.Errorf("http get: %w", err)
+				return fmt.Errorf("new client: %w", err)
 			}
-			defer resp.Body.Close()
-			if resp.StatusCode != http.StatusOK {
-				data, err := io.ReadAll(resp.Body)
-				if err != nil {
-					return fmt.Errorf("read body: %w", err)
-				}
-				return fmt.Errorf("error: %s", data)
+			if err := c.Room(botID, roomID).WriteMessages([]easybot.Message{{Text: text}}); err != nil {
+				return fmt.Errorf("write messages: %w", err)
 			}
-			_, _ = io.Copy(io.Discard, resp.Body)
 
 			return nil
 		},
