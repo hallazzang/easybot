@@ -52,11 +52,10 @@ const (
 
 // Message key names.
 const (
-	MessageRoomIDKey  = "roomID"
-	MessageTypeKey    = "type"
-	MessageReplyToKey = "replyTo"
-	MessageTextKey    = "text"
-	MessageReadKey    = "read"
+	MessageRoomIDKey = "roomID"
+	MessageTypeKey   = "type"
+	MessageTextKey   = "text"
+	MessageReadKey   = "read"
 )
 
 // Message is the model for a message.
@@ -64,7 +63,6 @@ type Message struct {
 	ID        primitive.ObjectID `bson:"_id,omitempty"`
 	RoomID    primitive.ObjectID `bson:"roomID"`
 	Type      MessageType        `bson:"type"`
-	ReplyTo   primitive.ObjectID `bson:"replyTo,omitempty"`
 	Text      string             `bson:"text"`
 	Read      bool               `bson:"read"`
 	CreatedAt time.Time          `bson:"createdAt"`

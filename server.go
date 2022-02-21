@@ -17,6 +17,8 @@ const (
 	BotLocalsKey        = "bot"
 	RoomLocalsKey       = "room"
 	ClientTypeLocalsKey = "clientType"
+
+	AccessKeyHeader = "X-Access-Key"
 )
 
 // Server is an EasyBot server.
@@ -183,12 +185,14 @@ func (server *Server) ReadMessages(c *fiber.Ctx) error {
 	case UserClient:
 		msgType = BotMessage
 	}
-	msgs, err := server.db.GetMessages(context.TODO(), room.ID, msgType)
+	msgs, err := server.db.GetUnreadMessages(context.TODO(), room.ID, msgType)
 	if err != nil {
 		return fmt.Errorf("get messages: %w", err)
 	}
-	if err := server.db.ReadMessages(context.TODO(), msgs); err != nil {
-		return fmt.Errorf("read messages: %w", err)
+	if !query.Peek && len(msgs) > 0 {
+		if err := server.db.ReadMessages(context.TODO(), msgs); err != nil {
+			return fmt.Errorf("read messages: %w", err)
+		}
 	}
 	resp := make([]MessageResponse, len(msgs))
 	for i, msg := range msgs {
@@ -196,13 +200,14 @@ func (server *Server) ReadMessages(c *fiber.Ctx) error {
 			ID:        msg.ID,
 			RoomID:    msg.RoomID,
 			Type:      msg.Type,
-			ReplyTo:   msg.ReplyTo,
 			Text:      msg.Text,
 			Read:      msg.Read,
 			CreatedAt: msg.CreatedAt,
 		}
 	}
-	return c.JSON(resp)
+	return c.JSON(fiber.Map{
+		"messages": resp,
+	})
 }
 
 // WriteMessages is a handler for writing messages in a room.
@@ -217,19 +222,6 @@ func (server *Server) WriteMessages(c *fiber.Ctx) error {
 	clientType := c.Locals(ClientTypeLocalsKey).(ClientType)
 	now := time.Now()
 	for i := range body.Messages {
-		replyTo := body.Messages[i].ReplyTo
-		if !replyTo.IsZero() {
-			msg, err := server.db.GetMessage(context.TODO(), room.ID, replyTo)
-			if err != nil {
-				if errors.Is(err, mongo.ErrNoDocuments) {
-					return fiber.NewError(fiber.StatusBadRequest, fmt.Sprintf("message %s not found", replyTo))
-				}
-				return fmt.Errorf("get message: %w", err)
-			}
-			if !msg.ReplyTo.IsZero() {
-				return fiber.NewError(fiber.StatusBadRequest, fmt.Sprintf("message %s is already a reply", replyTo))
-			}
-		}
 		var msgType MessageType
 		switch clientType {
 		case BotClient:
@@ -240,7 +232,6 @@ func (server *Server) WriteMessages(c *fiber.Ctx) error {
 		body.Messages[i] = Message{
 			RoomID:    room.ID,
 			Type:      msgType,
-			ReplyTo:   replyTo,
 			Text:      body.Messages[i].Text,
 			CreatedAt: now,
 		}
@@ -255,7 +246,6 @@ func (server *Server) WriteMessages(c *fiber.Ctx) error {
 			ID:        msg.ID,
 			RoomID:    msg.RoomID,
 			Type:      msg.Type,
-			ReplyTo:   msg.ReplyTo,
 			Text:      msg.Text,
 			Read:      msg.Read,
 			CreatedAt: msg.CreatedAt,
