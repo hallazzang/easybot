@@ -14,10 +14,18 @@ import (
 const DefaultServerURL = "http://localhost:8000/v1/"
 
 type Config struct {
+	AccessKey string
 	ServerURL string
 }
 
 type Option func(cfg *Config) error
+
+func WithAccessKey(accessKey string) Option {
+	return func(cfg *Config) error {
+		cfg.AccessKey = accessKey
+		return nil
+	}
+}
 
 func WithServerURL(serverURL string) Option {
 	return func(cfg *Config) error {
@@ -32,9 +40,8 @@ type Client struct {
 	httpClient *http.Client
 }
 
-func New(accessKey string, opts ...Option) (*Client, error) {
+func New(opts ...Option) (*Client, error) {
 	c := &Client{
-		accessKey:  accessKey,
 		httpClient: &http.Client{},
 	}
 	cfg := Config{
@@ -45,6 +52,7 @@ func New(accessKey string, opts ...Option) (*Client, error) {
 			return nil, err
 		}
 	}
+	c.accessKey = cfg.AccessKey
 	if cfg.ServerURL != "" {
 		u, err := url.Parse(cfg.ServerURL)
 		if err != nil {
@@ -55,18 +63,39 @@ func New(accessKey string, opts ...Option) (*Client, error) {
 	return c, nil
 }
 
-func (c *Client) Room(botID, roomID string) *Room {
-	return &Room{c: c, botID: botID, roomID: roomID}
+func (c *Client) CreateRoom(botID string) (*Room, error) {
+	u, _ := c.serverURL.Parse(fmt.Sprintf("bots/%s/rooms", botID))
+	resp, err := c.httpClient.Post(u.String(), "", nil)
+	if err != nil {
+		return nil, fmt.Errorf("http post: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		data, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("read body: %w", err)
+		}
+		return nil, fmt.Errorf("bad status code: %d: %s", resp.StatusCode, data)
+	}
+	var payload easybot.RoomResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("decode body: %w", err)
+	}
+	return &Room{c: c, BotID: botID, ID: payload.ID.Hex()}, nil
+}
+
+func (c *Client) Room(botID, id string) *Room {
+	return &Room{c: c, BotID: botID, ID: id}
 }
 
 type Room struct {
-	c      *Client
-	botID  string
-	roomID string
+	c     *Client
+	BotID string
+	ID    string
 }
 
 func (room *Room) ReadMessages(peek bool) ([]easybot.Message, error) {
-	u, _ := room.c.serverURL.Parse(fmt.Sprintf("bots/%s/rooms/%s/messages", room.botID, room.roomID))
+	u, _ := room.c.serverURL.Parse(fmt.Sprintf("bots/%s/rooms/%s/messages", room.BotID, room.ID))
 	if peek {
 		u.RawQuery = url.Values{"peek": {"true"}}.Encode()
 	}
@@ -85,7 +114,7 @@ func (room *Room) ReadMessages(peek bool) ([]easybot.Message, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read body: %w", err)
 		}
-		return nil, fmt.Errorf("error: %s", data)
+		return nil, fmt.Errorf("bad status code: %d: %s", resp.StatusCode, data)
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 		return nil, fmt.Errorf("decode body: %w", err)
@@ -95,7 +124,7 @@ func (room *Room) ReadMessages(peek bool) ([]easybot.Message, error) {
 
 func (room *Room) WriteMessages(msgs []easybot.Message) error {
 	payload, _ := json.Marshal(map[string]interface{}{"messages": msgs})
-	u, _ := room.c.serverURL.Parse(fmt.Sprintf("bots/%s/rooms/%s/messages", room.botID, room.roomID))
+	u, _ := room.c.serverURL.Parse(fmt.Sprintf("bots/%s/rooms/%s/messages", room.BotID, room.ID))
 	req, _ := http.NewRequest("POST", u.String(), bytes.NewReader(payload))
 	req.Header.Set(easybot.HeaderAccessKey, room.c.accessKey)
 	req.Header.Set("Content-Type", "application/json")
@@ -109,7 +138,7 @@ func (room *Room) WriteMessages(msgs []easybot.Message) error {
 		if err != nil {
 			return fmt.Errorf("read body: %w", err)
 		}
-		return fmt.Errorf("error: %s", data)
+		return fmt.Errorf("bad status code: %d: %s", resp.StatusCode, data)
 	}
 	_, _ = io.Copy(io.Discard, resp.Body)
 	return nil

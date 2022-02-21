@@ -80,6 +80,13 @@ func (server *Server) CreateBot(c *fiber.Ctx) error {
 	})
 }
 
+type RoomResponse struct {
+	ID        primitive.ObjectID `json:"id"`
+	BotID     primitive.ObjectID `json:"botID"`
+	AccessKey string             `json:"accessKey"`
+	CreatedAt time.Time          `json:"createdAt"`
+}
+
 // CreateRoom is a handler for creating a room.
 func (server *Server) CreateRoom(c *fiber.Ctx) error {
 	botID, err := primitive.ObjectIDFromHex(c.Params("bot"))
@@ -97,11 +104,11 @@ func (server *Server) CreateRoom(c *fiber.Ctx) error {
 	if err != nil {
 		return fmt.Errorf("create room: %w", err)
 	}
-	return c.JSON(fiber.Map{
-		"id":             room.ID,
-		RoomBotIDKey:     room.BotID,
-		RoomAccessKeyKey: room.AccessKey,
-		CreatedAtKey:     room.CreatedAt,
+	return c.JSON(RoomResponse{
+		ID:        room.ID,
+		BotID:     room.BotID,
+		AccessKey: room.AccessKey,
+		CreatedAt: room.CreatedAt,
 	})
 }
 

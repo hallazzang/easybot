@@ -18,6 +18,7 @@ func NewEasyBotCmd() *cobra.Command {
 	}
 	cmd.AddCommand(
 		NewServeCmd(),
+		NewCreateRoomCmd(),
 		NewReadCmd(),
 		NewWriteCmd(),
 	)
@@ -54,6 +55,33 @@ func NewServeCmd() *cobra.Command {
 	return cmd
 }
 
+func NewCreateRoomCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "create-room [bot]",
+		Short: "Create a room",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cmd.SilenceUsage = true
+
+			botID := args[0]
+
+			c, err := client.New()
+			if err != nil {
+				return fmt.Errorf("new client: %w", err)
+			}
+
+			room, err := c.CreateRoom(botID)
+			if err != nil {
+				return fmt.Errorf("create room: %w", err)
+			}
+
+			fmt.Printf("room id: %s\n", room.ID)
+			return nil
+		},
+	}
+	return cmd
+}
+
 func NewReadCmd() *cobra.Command {
 	var (
 		accessKey string
@@ -75,7 +103,7 @@ func NewReadCmd() *cobra.Command {
 				return fmt.Errorf("access key must be provided")
 			}
 
-			c, err := client.New(accessKey)
+			c, err := client.New(client.WithAccessKey(accessKey))
 			if err != nil {
 				return fmt.Errorf("new client: %w", err)
 			}
@@ -114,7 +142,7 @@ func NewWriteCmd() *cobra.Command {
 				return fmt.Errorf("access key must be provided")
 			}
 
-			c, err := client.New(accessKey)
+			c, err := client.New(client.WithAccessKey(accessKey))
 			if err != nil {
 				return fmt.Errorf("new client: %w", err)
 			}
