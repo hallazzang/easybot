@@ -231,6 +231,9 @@ func (server *Server) ReadMessages(c *fiber.Ctx) error {
 	}
 	room := c.Locals(RoomLocalsKey).(Room)
 	clientType := c.Locals(ClientTypeLocalsKey).(ClientType)
+	if clientType == "" {
+		return fiber.NewError(fiber.StatusUnauthorized, "unauthorized")
+	}
 	var msgType MessageType
 	switch clientType {
 	case BotClient:
@@ -272,6 +275,9 @@ func (server *Server) WriteMessages(c *fiber.Ctx) error {
 	}
 	room := c.Locals(RoomLocalsKey).(Room)
 	clientType := c.Locals(ClientTypeLocalsKey).(ClientType)
+	if clientType == "" {
+		return fiber.NewError(fiber.StatusUnauthorized, "unauthorized")
+	}
 	now := time.Now()
 	msgs := make([]Message, len(body.Messages))
 	for i := range body.Messages {
