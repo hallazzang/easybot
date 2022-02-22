@@ -220,10 +220,7 @@ func NewListRoomsCmd() *cobra.Command {
 }
 
 func NewReadCmd() *cobra.Command {
-	var (
-		accessKey string
-		peek      bool
-	)
+	var peek bool
 	cmd := &cobra.Command{
 		Use:   "read [bot] [room]",
 		Short: "Read messages",
@@ -272,13 +269,11 @@ func NewReadCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVarP(&accessKey, "access-key", "k", "", "Access key")
 	cmd.Flags().BoolVarP(&peek, "peek", "p", true, "Peek only")
 	return cmd
 }
 
 func NewWriteCmd() *cobra.Command {
-	var accessKey string
 	cmd := &cobra.Command{
 		Use:   "write [bot] [room] [text]",
 		Args:  cobra.ExactArgs(3),
@@ -306,12 +301,10 @@ func NewWriteCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVarP(&accessKey, "access-key", "k", "", "Access key")
 	return cmd
 }
 
 func NewInteractCmd() *cobra.Command {
-	var accessKey string
 	cmd := &cobra.Command{
 		Use:   "interact [bot] [room]",
 		Short: "Interact within a room",
@@ -366,6 +359,5 @@ func NewInteractCmd() *cobra.Command {
 			}
 		},
 	}
-	cmd.Flags().StringVarP(&accessKey, "access-key", "k", "", "Access key")
 	return cmd
 }
