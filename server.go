@@ -55,6 +55,14 @@ func (server *Server) RouteV1() {
 	rooms.Post("/:room/messages", server.RoomMiddleware, server.WriteMessages)
 }
 
+type BotResponse struct {
+	ID          primitive.ObjectID `json:"id"`
+	Name        string             `json:"name"`
+	Description string             `json:"description"`
+	AccessKey   string             `json:"accessKey"`
+	CreatedAt   time.Time          `json:"createdAt"`
+}
+
 // CreateBot is a handler for creating a bot.
 func (server *Server) CreateBot(c *fiber.Ctx) error {
 	var body struct {
@@ -71,12 +79,12 @@ func (server *Server) CreateBot(c *fiber.Ctx) error {
 	if err != nil {
 		return fmt.Errorf("create bot: %w", err)
 	}
-	return c.JSON(fiber.Map{
-		"id":              bot.ID,
-		BotNameKey:        bot.Name,
-		BotDescriptionKey: bot.Description,
-		BotAccessKeyKey:   bot.AccessKey,
-		CreatedAtKey:      bot.CreatedAt,
+	return c.JSON(BotResponse{
+		ID:          bot.ID,
+		Name:        bot.Name,
+		Description: bot.Description,
+		AccessKey:   bot.AccessKey,
+		CreatedAt:   bot.CreatedAt,
 	})
 }
 

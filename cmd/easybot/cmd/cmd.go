@@ -18,6 +18,7 @@ func NewEasyBotCmd() *cobra.Command {
 	}
 	cmd.AddCommand(
 		NewServeCmd(),
+		NewCreateBotCmd(),
 		NewCreateRoomCmd(),
 		NewReadCmd(),
 		NewWriteCmd(),
@@ -55,6 +56,37 @@ func NewServeCmd() *cobra.Command {
 	return cmd
 }
 
+func NewCreateBotCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "create-bot [name] [description]",
+		Short: "Create a bot",
+		Args:  cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cmd.SilenceUsage = true
+
+			name := args[0]
+			var desc string
+			if len(args) > 1 {
+				desc = args[1]
+			}
+
+			c, err := client.New()
+			if err != nil {
+				return fmt.Errorf("new client: %w", err)
+			}
+
+			bot, err := c.CreateBot(name, desc)
+			if err != nil {
+				return fmt.Errorf("create bot: %w", err)
+			}
+
+			fmt.Printf("bot id: %s\naccess key: %s\n", bot.ID, bot.AccessKey)
+			return nil
+		},
+	}
+	return cmd
+}
+
 func NewCreateRoomCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create-room [bot]",
@@ -75,7 +107,7 @@ func NewCreateRoomCmd() *cobra.Command {
 				return fmt.Errorf("create room: %w", err)
 			}
 
-			fmt.Printf("room id: %s\n", room.ID)
+			fmt.Printf("room id: %s\naccess key: %s\n", room.ID, room.AccessKey)
 			return nil
 		},
 	}

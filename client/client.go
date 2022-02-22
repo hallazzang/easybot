@@ -63,6 +63,58 @@ func New(opts ...Option) (*Client, error) {
 	return c, nil
 }
 
+type Bot struct {
+	c         *Client
+	AccessKey string
+	ID        string
+}
+
+func (c *Client) CreateBot(name, description string) (*Bot, error) {
+	u, _ := c.serverURL.Parse("bots")
+	payload, _ := json.Marshal(map[string]interface{}{
+		"name":        name,
+		"description": description,
+	})
+	req, _ := http.NewRequest("POST", u.String(), bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http post: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		data, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("read body: %w", err)
+		}
+		return nil, fmt.Errorf("bad status code: %d: %s", resp.StatusCode, data)
+	}
+	var body easybot.BotResponse
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, fmt.Errorf("decode body: %w", err)
+	}
+	return &Bot{c: c, AccessKey: body.AccessKey, ID: body.ID.Hex()}, nil
+}
+
+func (c *Client) Bot(id string) *Bot {
+	return &Bot{
+		c:         c,
+		AccessKey: c.accessKey,
+		ID:        id,
+	}
+}
+
+func (bot *Bot) Room(roomID string) *Room {
+	return &Room{c: bot.c, AccessKey: bot.AccessKey, BotID: bot.ID, ID: roomID}
+}
+
+type Room struct {
+	c         *Client
+	AccessKey string
+	BotID     string
+	ID        string
+}
+
 func (c *Client) CreateRoom(botID string) (*Room, error) {
 	u, _ := c.serverURL.Parse(fmt.Sprintf("bots/%s/rooms", botID))
 	resp, err := c.httpClient.Post(u.String(), "", nil)
@@ -77,21 +129,15 @@ func (c *Client) CreateRoom(botID string) (*Room, error) {
 		}
 		return nil, fmt.Errorf("bad status code: %d: %s", resp.StatusCode, data)
 	}
-	var payload easybot.RoomResponse
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+	var body easybot.RoomResponse
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		return nil, fmt.Errorf("decode body: %w", err)
 	}
-	return &Room{c: c, BotID: botID, ID: payload.ID.Hex()}, nil
+	return &Room{c: c, AccessKey: body.AccessKey, BotID: botID, ID: body.ID.Hex()}, nil
 }
 
 func (c *Client) Room(botID, id string) *Room {
-	return &Room{c: c, BotID: botID, ID: id}
-}
-
-type Room struct {
-	c     *Client
-	BotID string
-	ID    string
+	return &Room{c: c, AccessKey: c.accessKey, BotID: botID, ID: id}
 }
 
 func (room *Room) ReadMessages(peek bool) ([]easybot.Message, error) {
@@ -100,13 +146,13 @@ func (room *Room) ReadMessages(peek bool) ([]easybot.Message, error) {
 		u.RawQuery = url.Values{"peek": {"true"}}.Encode()
 	}
 	req, _ := http.NewRequest("GET", u.String(), nil)
-	req.Header.Set(easybot.HeaderAccessKey, room.c.accessKey)
+	req.Header.Set(easybot.HeaderAccessKey, room.AccessKey)
 	resp, err := room.c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("http get: %w", err)
 	}
 	defer resp.Body.Close()
-	var payload struct {
+	var body struct {
 		Messages []easybot.Message
 	}
 	if resp.StatusCode != http.StatusOK {
@@ -116,17 +162,17 @@ func (room *Room) ReadMessages(peek bool) ([]easybot.Message, error) {
 		}
 		return nil, fmt.Errorf("bad status code: %d: %s", resp.StatusCode, data)
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		return nil, fmt.Errorf("decode body: %w", err)
 	}
-	return payload.Messages, nil
+	return body.Messages, nil
 }
 
 func (room *Room) WriteMessages(msgs []easybot.Message) error {
 	payload, _ := json.Marshal(map[string]interface{}{"messages": msgs})
 	u, _ := room.c.serverURL.Parse(fmt.Sprintf("bots/%s/rooms/%s/messages", room.BotID, room.ID))
 	req, _ := http.NewRequest("POST", u.String(), bytes.NewReader(payload))
-	req.Header.Set(easybot.HeaderAccessKey, room.c.accessKey)
+	req.Header.Set(easybot.HeaderAccessKey, room.AccessKey)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := room.c.httpClient.Do(req)
 	if err != nil {
