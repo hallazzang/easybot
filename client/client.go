@@ -63,6 +63,30 @@ func New(opts ...Option) (*Client, error) {
 	return c, nil
 }
 
+func (c *Client) readMessages(url, accessKey string) ([]easybot.MessageResponse, error) {
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set(easybot.HeaderAccessKey, accessKey)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http get: %w", err)
+	}
+	defer resp.Body.Close()
+	var body struct {
+		Messages []easybot.MessageResponse
+	}
+	if resp.StatusCode != http.StatusOK {
+		data, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("read body: %w", err)
+		}
+		return nil, fmt.Errorf("bad status code: %d: %s", resp.StatusCode, data)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, fmt.Errorf("decode body: %w", err)
+	}
+	return body.Messages, nil
+}
+
 type Bot struct {
 	c         *Client
 	AccessKey string
@@ -104,6 +128,14 @@ func (c *Client) Bot(id string) *Bot {
 	}
 }
 
+func (bot *Bot) ReadMessages(peek bool) ([]easybot.MessageResponse, error) {
+	u, _ := bot.c.serverURL.Parse(fmt.Sprintf("bots/%s/messages", bot.ID))
+	if peek {
+		u.RawQuery = url.Values{"peek": {"true"}}.Encode()
+	}
+	return bot.c.readMessages(u.String(), bot.AccessKey)
+}
+
 func (bot *Bot) Room(roomID string) *Room {
 	return &Room{c: bot.c, AccessKey: bot.AccessKey, BotID: bot.ID, ID: roomID}
 }
@@ -140,32 +172,12 @@ func (c *Client) Room(botID, id string) *Room {
 	return &Room{c: c, AccessKey: c.accessKey, BotID: botID, ID: id}
 }
 
-func (room *Room) ReadMessages(peek bool) ([]easybot.Message, error) {
+func (room *Room) ReadMessages(peek bool) ([]easybot.MessageResponse, error) {
 	u, _ := room.c.serverURL.Parse(fmt.Sprintf("bots/%s/rooms/%s/messages", room.BotID, room.ID))
 	if peek {
 		u.RawQuery = url.Values{"peek": {"true"}}.Encode()
 	}
-	req, _ := http.NewRequest("GET", u.String(), nil)
-	req.Header.Set(easybot.HeaderAccessKey, room.AccessKey)
-	resp, err := room.c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("http get: %w", err)
-	}
-	defer resp.Body.Close()
-	var body struct {
-		Messages []easybot.Message
-	}
-	if resp.StatusCode != http.StatusOK {
-		data, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, fmt.Errorf("read body: %w", err)
-		}
-		return nil, fmt.Errorf("bad status code: %d: %s", resp.StatusCode, data)
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return nil, fmt.Errorf("decode body: %w", err)
-	}
-	return body.Messages, nil
+	return room.c.readMessages(u.String(), room.AccessKey)
 }
 
 func (room *Room) WriteMessages(msgs []easybot.Message) error {

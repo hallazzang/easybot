@@ -47,7 +47,7 @@ func (server *Server) RouteV1() {
 	bots.Post("", server.CreateBot)
 
 	bot := bots.Group("/:bot")
-	//bot.Get("/messages", server.ReadBotMessages)
+	bot.Get("/messages", server.ReadBotMessages)
 
 	rooms := bot.Group("/rooms")
 	rooms.Post("", server.CreateRoom)
@@ -120,6 +120,66 @@ func (server *Server) CreateRoom(c *fiber.Ctx) error {
 	})
 }
 
+// ReadBotMessages is a handler for reading bot messages.
+func (server *Server) ReadBotMessages(c *fiber.Ctx) error {
+	botID, err := primitive.ObjectIDFromHex(c.Params("bot"))
+	if err != nil {
+		return fiber.NewError(fiber.StatusNotFound, fmt.Sprintf("bot %s not found", c.Params("bot")))
+	}
+	var query struct {
+		Peek bool `query:"peek"`
+	}
+	if err := c.QueryParser(&query); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	var hdr struct {
+		AccessKey string `reqHeader:"X-Access-Key"`
+	}
+	if err := c.ReqHeaderParser(&hdr); err != nil {
+		return fiber.NewError(fiber.StatusUnauthorized, "unauthorized")
+	}
+	bot, err := server.db.GetBot(context.TODO(), botID)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return fiber.NewError(fiber.StatusNotFound, fmt.Sprintf("bot %s not found", botID))
+		}
+		return fmt.Errorf("get bot: %w", err)
+	}
+	if hdr.AccessKey != bot.AccessKey {
+		return fiber.NewError(fiber.StatusUnauthorized, "unauthorized")
+	}
+	rooms, err := server.db.GetRooms(context.TODO(), bot.ID)
+	if err != nil {
+		return fmt.Errorf("get rooms: %w", err)
+	}
+	var msgs []Message
+	var resp []MessageResponse
+	for _, room := range rooms {
+		ms, err := server.db.GetUnreadMessages(context.TODO(), room.ID, UserMessage)
+		if err != nil {
+			return fmt.Errorf("get unread messages: %w", err)
+		}
+		for _, msg := range ms {
+			resp = append(resp, MessageResponse{
+				ID:        msg.ID,
+				RoomID:    msg.RoomID,
+				Type:      msg.Type,
+				Text:      msg.Text,
+				CreatedAt: msg.CreatedAt,
+			})
+		}
+		msgs = append(msgs, ms...)
+	}
+	if !query.Peek && len(msgs) > 0 {
+		if err := server.db.ReadMessages(context.TODO(), msgs); err != nil {
+			return fmt.Errorf("read messages: %w", err)
+		}
+	}
+	return c.JSON(fiber.Map{
+		"messages": resp,
+	})
+}
+
 type ClientType string
 
 const (
@@ -173,13 +233,16 @@ func (server *Server) RoomMiddleware(c *fiber.Ctx) error {
 	return c.Next()
 }
 
+type MessageRequest struct {
+	RoomID primitive.ObjectID `json:"roomID"`
+	Text   string             `json:"text"`
+}
+
 type MessageResponse struct {
 	ID        primitive.ObjectID `json:"id"`
 	RoomID    primitive.ObjectID `json:"roomID"`
 	Type      MessageType        `json:"type"`
-	ReplyTo   primitive.ObjectID `json:"replyTo,omitempty"`
 	Text      string             `json:"text"`
-	Read      bool               `json:"read"`
 	CreatedAt time.Time          `json:"createdAt"`
 }
 
@@ -202,7 +265,7 @@ func (server *Server) ReadMessages(c *fiber.Ctx) error {
 	}
 	msgs, err := server.db.GetUnreadMessages(context.TODO(), room.ID, msgType)
 	if err != nil {
-		return fmt.Errorf("get messages: %w", err)
+		return fmt.Errorf("get unread messages: %w", err)
 	}
 	if !query.Peek && len(msgs) > 0 {
 		if err := server.db.ReadMessages(context.TODO(), msgs); err != nil {
@@ -216,7 +279,6 @@ func (server *Server) ReadMessages(c *fiber.Ctx) error {
 			RoomID:    msg.RoomID,
 			Type:      msg.Type,
 			Text:      msg.Text,
-			Read:      msg.Read,
 			CreatedAt: msg.CreatedAt,
 		}
 	}
@@ -228,7 +290,7 @@ func (server *Server) ReadMessages(c *fiber.Ctx) error {
 // WriteMessages is a handler for writing messages in a room.
 func (server *Server) WriteMessages(c *fiber.Ctx) error {
 	var body struct {
-		Messages []Message `json:"messages"`
+		Messages []MessageRequest `json:"messages"`
 	}
 	if err := c.BodyParser(&body); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
@@ -236,6 +298,7 @@ func (server *Server) WriteMessages(c *fiber.Ctx) error {
 	room := c.Locals(RoomLocalsKey).(Room)
 	clientType := c.Locals(ClientTypeLocalsKey).(ClientType)
 	now := time.Now()
+	msgs := make([]Message, len(body.Messages))
 	for i := range body.Messages {
 		var msgType MessageType
 		switch clientType {
@@ -244,14 +307,14 @@ func (server *Server) WriteMessages(c *fiber.Ctx) error {
 		case UserClient:
 			msgType = UserMessage
 		}
-		body.Messages[i] = Message{
+		msgs[i] = Message{
 			RoomID:    room.ID,
 			Type:      msgType,
 			Text:      body.Messages[i].Text,
 			CreatedAt: now,
 		}
 	}
-	msgs, err := server.db.CreateMessages(context.TODO(), body.Messages)
+	msgs, err := server.db.CreateMessages(context.TODO(), msgs)
 	if err != nil {
 		return fmt.Errorf("create messages: %w", err)
 	}
@@ -262,7 +325,6 @@ func (server *Server) WriteMessages(c *fiber.Ctx) error {
 			RoomID:    msg.RoomID,
 			Type:      msg.Type,
 			Text:      msg.Text,
-			Read:      msg.Read,
 			CreatedAt: msg.CreatedAt,
 		}
 	}

@@ -119,14 +119,17 @@ func (db *DB) CreateMessages(ctx context.Context, msgs []Message) ([]Message, er
 	return res, nil
 }
 
-// GetMessage returns a message.
-func (db *DB) GetMessage(ctx context.Context, roomID, id primitive.ObjectID) (Message, error) {
-	coll := db.Database().Collection(MessageCollectionName)
-	var msg Message
-	if err := coll.FindOne(ctx, bson.M{IDKey: id, MessageRoomIDKey: roomID}).Decode(&msg); err != nil {
-		return Message{}, fmt.Errorf("find: %w", err)
+func (db *DB) GetRooms(ctx context.Context, botID primitive.ObjectID) ([]Room, error) {
+	coll := db.Database().Collection(RoomCollectionName)
+	cursor, err := coll.Find(ctx, bson.M{RoomBotIDKey: botID})
+	if err != nil {
+		return nil, fmt.Errorf("find: %w", err)
 	}
-	return msg, nil
+	var rooms []Room
+	if err := cursor.All(ctx, &rooms); err != nil {
+		return nil, fmt.Errorf("decode: %w", err)
+	}
+	return rooms, nil
 }
 
 // GetUnreadMessages returns messages with specific type.
