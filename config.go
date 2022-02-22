@@ -27,5 +27,3 @@ type DBConfig struct {
 	URI      string
 	Database string
 }
-
-// TODO: create ReadConfig()

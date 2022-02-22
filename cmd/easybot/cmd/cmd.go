@@ -2,22 +2,37 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/hallazzang/read"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 
 	"github.com/hallazzang/easybot"
 	"github.com/hallazzang/easybot/client"
 )
 
-const AccessKeyEnvKey = "EASYBOT_ACCESS_KEY"
-
 func NewEasyBotCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use: "easybot",
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			viper.SetConfigName("easybot")
+			viper.AddConfigPath(".")
+			home, err := os.UserHomeDir()
+			if err == nil {
+				viper.AddConfigPath(filepath.Join(home, ".easybot"))
+			}
+			if err := viper.ReadInConfig(); err != nil {
+				if !errors.As(err, &viper.ConfigFileNotFoundError{}) {
+					return fmt.Errorf("read config: %w", err)
+				}
+			}
+			return nil
+		},
 	}
 	cmd.AddCommand(
 		NewServeCmd(),
@@ -42,7 +57,10 @@ func NewServeCmd() *cobra.Command {
 			cmd.SilenceUsage = true
 
 			addr := args[0]
-			cfg := easybot.DefaultServerConfig // TODO: use ReadConfig
+			cfg := easybot.DefaultServerConfig
+			if err := viper.UnmarshalKey("server", &cfg); err != nil {
+				return fmt.Errorf("unmarshal server config: %w", err)
+			}
 
 			db, err := easybot.NewDB(context.Background(), cfg.DB)
 			if err != nil {
@@ -76,7 +94,12 @@ func NewCreateBotCmd() *cobra.Command {
 				desc = args[1]
 			}
 
-			c, err := client.New()
+			cfg := client.DefaultClientConfig
+			if err := viper.UnmarshalKey("client", &cfg); err != nil {
+				return fmt.Errorf("unmarshal client config: %w", err)
+			}
+
+			c, err := client.New(cfg)
 			if err != nil {
 				return fmt.Errorf("new client: %w", err)
 			}
@@ -101,7 +124,12 @@ func NewListBotsCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
 
-			c, err := client.New()
+			cfg := client.DefaultClientConfig
+			if err := viper.UnmarshalKey("client", &cfg); err != nil {
+				return fmt.Errorf("unmarshal client config: %w", err)
+			}
+
+			c, err := client.New(cfg)
 			if err != nil {
 				return fmt.Errorf("new client: %w", err)
 			}
@@ -132,7 +160,12 @@ func NewCreateRoomCmd() *cobra.Command {
 
 			botID := args[0]
 
-			c, err := client.New()
+			cfg := client.DefaultClientConfig
+			if err := viper.UnmarshalKey("client", &cfg); err != nil {
+				return fmt.Errorf("unmarshal client config: %w", err)
+			}
+
+			c, err := client.New(cfg)
 			if err != nil {
 				return fmt.Errorf("new client: %w", err)
 			}
@@ -159,7 +192,12 @@ func NewListRoomsCmd() *cobra.Command {
 
 			botID := args[0]
 
-			c, err := client.New()
+			cfg := client.DefaultClientConfig
+			if err := viper.UnmarshalKey("client", &cfg); err != nil {
+				return fmt.Errorf("unmarshal client config: %w", err)
+			}
+
+			c, err := client.New(cfg)
 			if err != nil {
 				return fmt.Errorf("new client: %w", err)
 			}
@@ -198,14 +236,13 @@ func NewReadCmd() *cobra.Command {
 			if len(args) > 1 {
 				roomID = args[1]
 			}
-			if accessKey == "" {
-				accessKey = os.Getenv(AccessKeyEnvKey)
-			}
-			if accessKey == "" {
-				return fmt.Errorf("access key must be provided")
+
+			cfg := client.DefaultClientConfig
+			if err := viper.UnmarshalKey("client", &cfg); err != nil {
+				return fmt.Errorf("unmarshal client config: %w", err)
 			}
 
-			c, err := client.New(client.WithAccessKey(accessKey))
+			c, err := client.New(cfg)
 			if err != nil {
 				return fmt.Errorf("new client: %w", err)
 			}
@@ -252,14 +289,13 @@ func NewWriteCmd() *cobra.Command {
 			botID := args[0]
 			roomID := args[1]
 			text := args[2]
-			if accessKey == "" {
-				accessKey = os.Getenv(AccessKeyEnvKey)
-			}
-			if accessKey == "" {
-				return fmt.Errorf("access key must be provided")
+
+			cfg := client.DefaultClientConfig
+			if err := viper.UnmarshalKey("client", &cfg); err != nil {
+				return fmt.Errorf("unmarshal client config: %w", err)
 			}
 
-			c, err := client.New(client.WithAccessKey(accessKey))
+			c, err := client.New(cfg)
 			if err != nil {
 				return fmt.Errorf("new client: %w", err)
 			}
@@ -285,14 +321,13 @@ func NewInteractCmd() *cobra.Command {
 
 			botID := args[0]
 			roomID := args[1]
-			if accessKey == "" {
-				accessKey = os.Getenv(AccessKeyEnvKey)
-			}
-			if accessKey == "" {
-				return fmt.Errorf("access key must be provided")
+
+			cfg := client.DefaultClientConfig
+			if err := viper.UnmarshalKey("client", &cfg); err != nil {
+				return fmt.Errorf("unmarshal client config: %w", err)
 			}
 
-			c, err := client.New(client.WithAccessKey(accessKey))
+			c, err := client.New(cfg)
 			if err != nil {
 				return fmt.Errorf("access key must be provided")
 			}

@@ -12,60 +12,36 @@ import (
 	"github.com/hallazzang/easybot"
 )
 
-const DefaultServerURL = "http://localhost:8000/v1/"
-
-type Config struct {
-	AccessKey string
-	ServerURL string
-}
-
-type Option func(cfg *Config) error
-
-func WithAccessKey(accessKey string) Option {
-	return func(cfg *Config) error {
-		cfg.AccessKey = accessKey
-		return nil
-	}
-}
-
-func WithServerURL(serverURL string) Option {
-	return func(cfg *Config) error {
-		cfg.ServerURL = serverURL
-		return nil
-	}
-}
-
 type Client struct {
 	accessKey  string
 	serverURL  *url.URL
 	httpClient *http.Client
 }
 
-func New(opts ...Option) (*Client, error) {
+func New(configs ...Config) (*Client, error) {
 	c := &Client{
 		httpClient: &http.Client{},
 	}
-	cfg := Config{
-		ServerURL: DefaultServerURL,
-	}
-	for _, opt := range opts {
-		if err := opt(&cfg); err != nil {
-			return nil, err
+	cfg := DefaultClientConfig
+	for _, c := range configs {
+		if c.ServerURL != "" {
+			cfg.ServerURL = c.ServerURL
+		}
+		if c.AccessKey != "" {
+			cfg.AccessKey = c.AccessKey
 		}
 	}
 	c.accessKey = cfg.AccessKey
-	if cfg.ServerURL != "" {
-		u, err := url.Parse(cfg.ServerURL)
-		if err != nil {
-			return nil, fmt.Errorf("parse server url: %w", err)
-		}
-		c.serverURL = u
+	u, err := url.Parse(cfg.ServerURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse server url: %w", err)
 	}
+	c.serverURL = u
 	return c, nil
 }
 
 func (c *Client) ListBots(ctx context.Context) ([]easybot.BotResponse, error) {
-	u, _ := c.serverURL.Parse("bots")
+	u, _ := c.serverURL.Parse("/v1/bots")
 	req, _ := http.NewRequest("GET", u.String(), nil)
 	req = req.WithContext(ctx)
 	resp, err := c.httpClient.Do(req)
@@ -130,7 +106,7 @@ type Bot struct {
 }
 
 func (c *Client) CreateBot(ctx context.Context, name, description string) (*Bot, error) {
-	u, _ := c.serverURL.Parse("bots")
+	u, _ := c.serverURL.Parse("/v1/bots")
 	payload, _ := json.Marshal(map[string]interface{}{
 		"name":        name,
 		"description": description,
@@ -163,7 +139,7 @@ func (c *Client) Bot(id string) *Bot {
 }
 
 func (bot *Bot) ListRooms(ctx context.Context) ([]easybot.RoomResponse, error) {
-	u, _ := bot.c.serverURL.Parse(fmt.Sprintf("bots/%s/rooms", bot.ID))
+	u, _ := bot.c.serverURL.Parse(fmt.Sprintf("/v1/bots/%s/rooms", bot.ID))
 	req, _ := http.NewRequest("GET", u.String(), nil)
 	req = req.WithContext(ctx)
 	resp, err := bot.c.httpClient.Do(req)
@@ -185,7 +161,7 @@ func (bot *Bot) ListRooms(ctx context.Context) ([]easybot.RoomResponse, error) {
 }
 
 func (bot *Bot) ReadMessages(ctx context.Context, peek bool) ([]easybot.MessageResponse, error) {
-	u, _ := bot.c.serverURL.Parse(fmt.Sprintf("bots/%s/messages", bot.ID))
+	u, _ := bot.c.serverURL.Parse(fmt.Sprintf("/v1/bots/%s/messages", bot.ID))
 	if peek {
 		u.RawQuery = url.Values{"peek": {"true"}}.Encode()
 	}
@@ -204,7 +180,7 @@ type Room struct {
 }
 
 func (c *Client) CreateRoom(ctx context.Context, botID string) (*Room, error) {
-	u, _ := c.serverURL.Parse(fmt.Sprintf("bots/%s/rooms", botID))
+	u, _ := c.serverURL.Parse(fmt.Sprintf("/v1/bots/%s/rooms", botID))
 	req, _ := http.NewRequest("POST", u.String(), nil)
 	req = req.WithContext(ctx)
 	resp, err := c.httpClient.Do(req)
@@ -228,7 +204,7 @@ func (c *Client) Room(botID, id string) *Room {
 }
 
 func (room *Room) ReadMessages(ctx context.Context, peek bool) ([]easybot.MessageResponse, error) {
-	u, _ := room.c.serverURL.Parse(fmt.Sprintf("bots/%s/rooms/%s/messages", room.BotID, room.ID))
+	u, _ := room.c.serverURL.Parse(fmt.Sprintf("/v1/bots/%s/rooms/%s/messages", room.BotID, room.ID))
 	if peek {
 		u.RawQuery = url.Values{"peek": {"true"}}.Encode()
 	}
@@ -237,7 +213,7 @@ func (room *Room) ReadMessages(ctx context.Context, peek bool) ([]easybot.Messag
 
 func (room *Room) WriteMessages(ctx context.Context, msgs []easybot.MessageRequest) error {
 	payload, _ := json.Marshal(map[string]interface{}{"messages": msgs})
-	u, _ := room.c.serverURL.Parse(fmt.Sprintf("bots/%s/rooms/%s/messages", room.BotID, room.ID))
+	u, _ := room.c.serverURL.Parse(fmt.Sprintf("/v1/bots/%s/rooms/%s/messages", room.BotID, room.ID))
 	req, _ := http.NewRequest("POST", u.String(), bytes.NewReader(payload))
 	req = req.WithContext(ctx)
 	req.Header.Set(easybot.HeaderAccessKey, room.AccessKey)
