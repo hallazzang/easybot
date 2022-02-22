@@ -2,6 +2,7 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -63,28 +64,63 @@ func New(opts ...Option) (*Client, error) {
 	return c, nil
 }
 
-func (c *Client) readMessages(url, accessKey string) ([]easybot.MessageResponse, error) {
+func (c *Client) ListBots(ctx context.Context) ([]easybot.BotResponse, error) {
+	u, _ := c.serverURL.Parse("bots")
+	req, _ := http.NewRequest("GET", u.String(), nil)
+	req = req.WithContext(ctx)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http get: %w", err)
+	}
+	defer resp.Body.Close()
+	defer io.Copy(io.Discard, resp.Body)
+	if err := c.checkErr(resp); err != nil {
+		return nil, err
+	}
+	var body struct {
+		Bots []easybot.BotResponse
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, fmt.Errorf("decode body: %w", err)
+	}
+	return body.Bots, nil
+}
+
+func (c *Client) ListRooms(ctx context.Context, botID string) ([]easybot.RoomResponse, error) {
+	return c.Bot(botID).ListRooms(ctx)
+}
+
+func (c *Client) readMessages(ctx context.Context, url, accessKey string) ([]easybot.MessageResponse, error) {
 	req, _ := http.NewRequest("GET", url, nil)
+	req = req.WithContext(ctx)
 	req.Header.Set(easybot.HeaderAccessKey, accessKey)
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("http get: %w", err)
 	}
 	defer resp.Body.Close()
+	defer io.Copy(io.Discard, resp.Body)
 	var body struct {
 		Messages []easybot.MessageResponse
 	}
-	if resp.StatusCode != http.StatusOK {
-		data, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, fmt.Errorf("read body: %w", err)
-		}
-		return nil, fmt.Errorf("bad status code: %d: %s", resp.StatusCode, data)
+	if err := c.checkErr(resp); err != nil {
+		return nil, err
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		return nil, fmt.Errorf("decode body: %w", err)
 	}
 	return body.Messages, nil
+}
+
+func (c *Client) checkErr(resp *http.Response) error {
+	if resp.StatusCode != http.StatusOK {
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("read body: %w", err)
+		}
+		return fmt.Errorf("bad status code: %d: %s", resp.StatusCode, body)
+	}
+	return nil
 }
 
 type Bot struct {
@@ -106,12 +142,9 @@ func (c *Client) CreateBot(name, description string) (*Bot, error) {
 		return nil, fmt.Errorf("http post: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		data, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, fmt.Errorf("read body: %w", err)
-		}
-		return nil, fmt.Errorf("bad status code: %d: %s", resp.StatusCode, data)
+	defer io.Copy(io.Discard, resp.Body)
+	if err := c.checkErr(resp); err != nil {
+		return nil, err
 	}
 	var body easybot.BotResponse
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
@@ -128,12 +161,34 @@ func (c *Client) Bot(id string) *Bot {
 	}
 }
 
-func (bot *Bot) ReadMessages(peek bool) ([]easybot.MessageResponse, error) {
+func (bot *Bot) ListRooms(ctx context.Context) ([]easybot.RoomResponse, error) {
+	u, _ := bot.c.serverURL.Parse(fmt.Sprintf("bots/%s/rooms", bot.ID))
+	req, _ := http.NewRequest("GET", u.String(), nil)
+	req = req.WithContext(ctx)
+	resp, err := bot.c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http get: %w", err)
+	}
+	defer resp.Body.Close()
+	defer io.Copy(io.Discard, resp.Body)
+	if err := bot.c.checkErr(resp); err != nil {
+		return nil, err
+	}
+	var body struct {
+		Rooms []easybot.RoomResponse
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, fmt.Errorf("decode body: %w", err)
+	}
+	return body.Rooms, nil
+}
+
+func (bot *Bot) ReadMessages(ctx context.Context, peek bool) ([]easybot.MessageResponse, error) {
 	u, _ := bot.c.serverURL.Parse(fmt.Sprintf("bots/%s/messages", bot.ID))
 	if peek {
 		u.RawQuery = url.Values{"peek": {"true"}}.Encode()
 	}
-	return bot.c.readMessages(u.String(), bot.AccessKey)
+	return bot.c.readMessages(ctx, u.String(), bot.AccessKey)
 }
 
 func (bot *Bot) Room(roomID string) *Room {
@@ -147,19 +202,18 @@ type Room struct {
 	ID        string
 }
 
-func (c *Client) CreateRoom(botID string) (*Room, error) {
+func (c *Client) CreateRoom(ctx context.Context, botID string) (*Room, error) {
 	u, _ := c.serverURL.Parse(fmt.Sprintf("bots/%s/rooms", botID))
-	resp, err := c.httpClient.Post(u.String(), "", nil)
+	req, _ := http.NewRequest("POST", u.String(), nil)
+	req = req.WithContext(ctx)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("http post: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		data, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, fmt.Errorf("read body: %w", err)
-		}
-		return nil, fmt.Errorf("bad status code: %d: %s", resp.StatusCode, data)
+	defer io.Copy(io.Discard, resp.Body)
+	if err := c.checkErr(resp); err != nil {
+		return nil, err
 	}
 	var body easybot.RoomResponse
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
@@ -172,18 +226,19 @@ func (c *Client) Room(botID, id string) *Room {
 	return &Room{c: c, AccessKey: c.accessKey, BotID: botID, ID: id}
 }
 
-func (room *Room) ReadMessages(peek bool) ([]easybot.MessageResponse, error) {
+func (room *Room) ReadMessages(ctx context.Context, peek bool) ([]easybot.MessageResponse, error) {
 	u, _ := room.c.serverURL.Parse(fmt.Sprintf("bots/%s/rooms/%s/messages", room.BotID, room.ID))
 	if peek {
 		u.RawQuery = url.Values{"peek": {"true"}}.Encode()
 	}
-	return room.c.readMessages(u.String(), room.AccessKey)
+	return room.c.readMessages(ctx, u.String(), room.AccessKey)
 }
 
-func (room *Room) WriteMessages(msgs []easybot.Message) error {
+func (room *Room) WriteMessages(ctx context.Context, msgs []easybot.Message) error {
 	payload, _ := json.Marshal(map[string]interface{}{"messages": msgs})
 	u, _ := room.c.serverURL.Parse(fmt.Sprintf("bots/%s/rooms/%s/messages", room.BotID, room.ID))
 	req, _ := http.NewRequest("POST", u.String(), bytes.NewReader(payload))
+	req = req.WithContext(ctx)
 	req.Header.Set(easybot.HeaderAccessKey, room.AccessKey)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := room.c.httpClient.Do(req)
@@ -191,12 +246,9 @@ func (room *Room) WriteMessages(msgs []easybot.Message) error {
 		return fmt.Errorf("http post: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		data, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return fmt.Errorf("read body: %w", err)
-		}
-		return fmt.Errorf("bad status code: %d: %s", resp.StatusCode, data)
+	defer io.Copy(io.Discard, resp.Body)
+	if err := room.c.checkErr(resp); err != nil {
+		return err
 	}
 	_, _ = io.Copy(io.Discard, resp.Body)
 	return nil

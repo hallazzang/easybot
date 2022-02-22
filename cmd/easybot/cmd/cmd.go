@@ -12,6 +12,8 @@ import (
 	"github.com/hallazzang/easybot/client"
 )
 
+const AccessKeyEnvKey = "EASYBOT_ACCESS_KEY"
+
 func NewEasyBotCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use: "easybot",
@@ -19,7 +21,9 @@ func NewEasyBotCmd() *cobra.Command {
 	cmd.AddCommand(
 		NewServeCmd(),
 		NewCreateBotCmd(),
+		NewListBotsCmd(),
 		NewCreateRoomCmd(),
+		NewListRoomsCmd(),
 		NewReadCmd(),
 		NewWriteCmd(),
 	)
@@ -87,6 +91,35 @@ func NewCreateBotCmd() *cobra.Command {
 	return cmd
 }
 
+func NewListBotsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "bots",
+		Short: "List all bots",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cmd.SilenceUsage = true
+
+			c, err := client.New()
+			if err != nil {
+				return fmt.Errorf("new client: %w", err)
+			}
+
+			bots, err := c.ListBots(context.TODO())
+			if err != nil {
+				return fmt.Errorf("list bots: %w", err)
+			}
+
+			fmt.Println("ID                        Created          Name")
+			fmt.Println("------------------------  ---------------  ----")
+			for _, bot := range bots {
+				fmt.Printf("%24s  %15s  %s\n", bot.ID.Hex(), bot.CreatedAt.In(time.Local).Format(time.Stamp), bot.Name)
+			}
+			return nil
+		},
+	}
+	return cmd
+}
+
 func NewCreateRoomCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create-room [bot]",
@@ -102,12 +135,44 @@ func NewCreateRoomCmd() *cobra.Command {
 				return fmt.Errorf("new client: %w", err)
 			}
 
-			room, err := c.CreateRoom(botID)
+			room, err := c.CreateRoom(context.TODO(), botID)
 			if err != nil {
 				return fmt.Errorf("create room: %w", err)
 			}
 
 			fmt.Printf("room id: %s\naccess key: %s\n", room.ID, room.AccessKey)
+			return nil
+		},
+	}
+	return cmd
+}
+
+func NewListRoomsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "rooms [bot]",
+		Short: "List all rooms of a bot",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cmd.SilenceUsage = true
+
+			botID := args[0]
+
+			c, err := client.New()
+			if err != nil {
+				return fmt.Errorf("new client: %w", err)
+			}
+
+			rooms, err := c.ListRooms(context.TODO(), botID)
+			if err != nil {
+				return fmt.Errorf("list rooms: %w", err)
+			}
+
+			fmt.Println("ID                        Created   ")
+			fmt.Println("------------------------  ----------")
+			for _, room := range rooms {
+				fmt.Printf("%24s  %s\n", room.ID.Hex(), room.CreatedAt.In(time.Local).Format(time.Stamp))
+			}
+
 			return nil
 		},
 	}
@@ -129,7 +194,7 @@ func NewReadCmd() *cobra.Command {
 			botID := args[0]
 			roomID := args[1]
 			if accessKey == "" {
-				accessKey = os.Getenv("EASYBOT_ACCESS_KEY")
+				accessKey = os.Getenv(AccessKeyEnvKey)
 			}
 			if accessKey == "" {
 				return fmt.Errorf("access key must be provided")
@@ -139,12 +204,14 @@ func NewReadCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("new client: %w", err)
 			}
-			msgs, err := c.Room(botID, roomID).ReadMessages(peek)
+			msgs, err := c.Room(botID, roomID).ReadMessages(context.TODO(), peek)
 			if err != nil {
 				return fmt.Errorf("read messages: %w", err)
 			}
+			fmt.Println("Created          Text")
+			fmt.Println("---------------  ----")
 			for _, msg := range msgs {
-				fmt.Printf("[%s] %s\n", msg.CreatedAt.In(time.Local).Format(time.Kitchen), msg.Text)
+				fmt.Printf("%15s  %s\n", msg.CreatedAt.In(time.Local).Format(time.Stamp), msg.Text)
 			}
 
 			return nil
@@ -168,7 +235,7 @@ func NewWriteCmd() *cobra.Command {
 			roomID := args[1]
 			text := args[2]
 			if accessKey == "" {
-				accessKey = os.Getenv("EASYBOT_ACCESS_KEY")
+				accessKey = os.Getenv(AccessKeyEnvKey)
 			}
 			if accessKey == "" {
 				return fmt.Errorf("access key must be provided")
@@ -178,7 +245,7 @@ func NewWriteCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("new client: %w", err)
 			}
-			if err := c.Room(botID, roomID).WriteMessages([]easybot.Message{{Text: text}}); err != nil {
+			if err := c.Room(botID, roomID).WriteMessages(context.TODO(), []easybot.Message{{Text: text}}); err != nil {
 				return fmt.Errorf("write messages: %w", err)
 			}
 
