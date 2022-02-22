@@ -17,6 +17,7 @@ const (
 	BotLocalsKey        = "bot"
 	RoomLocalsKey       = "room"
 	ClientTypeLocalsKey = "clientType"
+	AccessKeyLocalsKey  = "accessKey"
 
 	HeaderAccessKey = "X-Access-Key"
 )
@@ -41,25 +42,29 @@ func NewServer(cfg ServerConfig, db *DB) *Server {
 
 // RouteV1 registers API v1 routes.
 func (server *Server) RouteV1() {
-	v1 := server.Group("/v1")
+	v1 := server.Group("/v1", server.AccessKeyMiddleware)
 
 	bots := v1.Group("/bots")
+	bots.Get("", server.ListBots)
 	bots.Post("", server.CreateBot)
 
-	bot := bots.Group("/:bot")
+	bot := bots.Group("/:bot", server.BotMiddleware)
 	bot.Get("/messages", server.ReadBotMessages)
 
 	rooms := bot.Group("/rooms")
+	rooms.Get("", server.ListRooms)
 	rooms.Post("", server.CreateRoom)
-	rooms.Get("/:room/messages", server.RoomMiddleware, server.ReadMessages)
-	rooms.Post("/:room/messages", server.RoomMiddleware, server.WriteMessages)
+
+	room := rooms.Group("/:room", server.RoomMiddleware, server.ClientTypeMiddleware)
+	room.Get("/messages", server.ReadMessages)
+	room.Post("/messages", server.WriteMessages)
 }
 
 type BotResponse struct {
 	ID          primitive.ObjectID `json:"id"`
 	Name        string             `json:"name"`
 	Description string             `json:"description"`
-	AccessKey   string             `json:"accessKey"`
+	AccessKey   string             `json:"accessKey,omitempty"`
 	CreatedAt   time.Time          `json:"createdAt"`
 }
 
@@ -88,64 +93,38 @@ func (server *Server) CreateBot(c *fiber.Ctx) error {
 	})
 }
 
-type RoomResponse struct {
-	ID        primitive.ObjectID `json:"id"`
-	BotID     primitive.ObjectID `json:"botID"`
-	AccessKey string             `json:"accessKey"`
-	CreatedAt time.Time          `json:"createdAt"`
-}
-
-// CreateRoom is a handler for creating a room.
-func (server *Server) CreateRoom(c *fiber.Ctx) error {
-	botID, err := primitive.ObjectIDFromHex(c.Params("bot"))
+// ListBots is a handler for listing all bots.
+// TODO: use pagination
+func (server *Server) ListBots(c *fiber.Ctx) error {
+	bots, err := server.db.GetBots(context.TODO())
 	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, fmt.Sprintf("bot %s not found", c.Params("bot")))
+		return fmt.Errorf("get bots: %w", err)
 	}
-	bot, err := server.db.GetBot(context.TODO(), botID)
-	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return fiber.NewError(fiber.StatusNotFound, fmt.Sprintf("bot %s not found", botID))
+	resp := make([]BotResponse, len(bots))
+	for i, bot := range bots {
+		resp[i] = BotResponse{
+			ID:          bot.ID,
+			Name:        bot.Name,
+			Description: bot.Description,
+			CreatedAt:   bot.CreatedAt,
 		}
-		return fmt.Errorf("get bot: %w", err)
 	}
-	room, err := server.db.CreateRoom(context.TODO(), bot.ID)
-	if err != nil {
-		return fmt.Errorf("create room: %w", err)
-	}
-	return c.JSON(RoomResponse{
-		ID:        room.ID,
-		BotID:     room.BotID,
-		AccessKey: room.AccessKey,
-		CreatedAt: room.CreatedAt,
+	return c.JSON(fiber.Map{
+		"bots": resp,
 	})
 }
 
 // ReadBotMessages is a handler for reading bot messages.
 func (server *Server) ReadBotMessages(c *fiber.Ctx) error {
-	botID, err := primitive.ObjectIDFromHex(c.Params("bot"))
-	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, fmt.Sprintf("bot %s not found", c.Params("bot")))
-	}
+	bot := c.Locals(BotLocalsKey).(Bot)
+	accessKey := c.Locals(AccessKeyLocalsKey).(string)
 	var query struct {
 		Peek bool `query:"peek"`
 	}
 	if err := c.QueryParser(&query); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
-	var hdr struct {
-		AccessKey string `reqHeader:"X-Access-Key"`
-	}
-	if err := c.ReqHeaderParser(&hdr); err != nil {
-		return fiber.NewError(fiber.StatusUnauthorized, "unauthorized")
-	}
-	bot, err := server.db.GetBot(context.TODO(), botID)
-	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return fiber.NewError(fiber.StatusNotFound, fmt.Sprintf("bot %s not found", botID))
-		}
-		return fmt.Errorf("get bot: %w", err)
-	}
-	if hdr.AccessKey != bot.AccessKey {
+	if accessKey != bot.AccessKey {
 		return fiber.NewError(fiber.StatusUnauthorized, "unauthorized")
 	}
 	rooms, err := server.db.GetRooms(context.TODO(), bot.ID)
@@ -180,58 +159,54 @@ func (server *Server) ReadBotMessages(c *fiber.Ctx) error {
 	})
 }
 
+type RoomResponse struct {
+	ID        primitive.ObjectID `json:"id"`
+	BotID     primitive.ObjectID `json:"botID"`
+	AccessKey string             `json:"accessKey,omitempty"`
+	CreatedAt time.Time          `json:"createdAt"`
+}
+
+// CreateRoom is a handler for creating a room.
+func (server *Server) CreateRoom(c *fiber.Ctx) error {
+	bot := c.Locals(BotLocalsKey).(Bot)
+	room, err := server.db.CreateRoom(context.TODO(), bot.ID)
+	if err != nil {
+		return fmt.Errorf("create room: %w", err)
+	}
+	return c.JSON(RoomResponse{
+		ID:        room.ID,
+		BotID:     room.BotID,
+		AccessKey: room.AccessKey,
+		CreatedAt: room.CreatedAt,
+	})
+}
+
+// ListRooms is a handler for listing all rooms.
+func (server *Server) ListRooms(c *fiber.Ctx) error {
+	bot := c.Locals(BotLocalsKey).(Bot)
+	rooms, err := server.db.GetRooms(context.TODO(), bot.ID)
+	if err != nil {
+		return fmt.Errorf("get rooms: %w", err)
+	}
+	resp := make([]RoomResponse, len(rooms))
+	for i, room := range rooms {
+		resp[i] = RoomResponse{
+			ID:        room.ID,
+			BotID:     room.BotID,
+			CreatedAt: room.CreatedAt,
+		}
+	}
+	return c.JSON(fiber.Map{
+		"rooms": resp,
+	})
+}
+
 type ClientType string
 
 const (
 	BotClient  = ClientType("bot")
 	UserClient = ClientType("user")
 )
-
-// RoomMiddleware is a middleware for a room.
-func (server *Server) RoomMiddleware(c *fiber.Ctx) error {
-	botID, err := primitive.ObjectIDFromHex(c.Params("bot"))
-	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, fmt.Sprintf("bot %s not found", c.Params("bot")))
-	}
-	roomID, err := primitive.ObjectIDFromHex(c.Params("room"))
-	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, fmt.Sprintf("room %s not found", c.Params("room")))
-	}
-	var hdr struct {
-		AccessKey string `reqHeader:"X-Access-Key"`
-	}
-	if err := c.ReqHeaderParser(&hdr); err != nil {
-		return fiber.NewError(fiber.StatusUnauthorized, "unauthorized")
-	}
-	bot, err := server.db.GetBot(context.TODO(), botID)
-	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return fiber.NewError(fiber.StatusNotFound, fmt.Sprintf("bot %s not found", botID))
-		}
-		return fmt.Errorf("get bot: %w", err)
-	}
-	var clientType ClientType
-	if hdr.AccessKey == bot.AccessKey {
-		clientType = BotClient
-	}
-	room, err := server.db.GetRoom(context.TODO(), roomID)
-	if err != nil || room.BotID != bot.ID {
-		if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
-			return fmt.Errorf("get room: %w", err)
-		}
-		return fiber.NewError(fiber.StatusNotFound, fmt.Sprintf("room %s not found", roomID))
-	}
-	if hdr.AccessKey == room.AccessKey {
-		clientType = UserClient
-	}
-	if clientType == "" {
-		return fiber.NewError(fiber.StatusUnauthorized, "unauthorized")
-	}
-	c.Locals(BotLocalsKey, bot)
-	c.Locals(RoomLocalsKey, room)
-	c.Locals(ClientTypeLocalsKey, clientType)
-	return c.Next()
-}
 
 type MessageRequest struct {
 	RoomID primitive.ObjectID `json:"roomID"`
@@ -331,6 +306,65 @@ func (server *Server) WriteMessages(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"messages": resp,
 	})
+}
+
+func (server *Server) AccessKeyMiddleware(c *fiber.Ctx) error {
+	var hdr struct {
+		AccessKey string `reqHeader:"X-Access-Key"`
+	}
+	if err := c.ReqHeaderParser(&hdr); err != nil {
+		return fmt.Errorf("read req header: %w", err)
+	}
+	c.Locals(AccessKeyLocalsKey, hdr.AccessKey)
+	return c.Next()
+}
+
+func (server *Server) BotMiddleware(c *fiber.Ctx) error {
+	botID, err := primitive.ObjectIDFromHex(c.Params("bot"))
+	if err != nil {
+		return fiber.NewError(fiber.StatusNotFound, fmt.Sprintf("bot %s not found", c.Params("bot")))
+	}
+	bot, err := server.db.GetBot(context.TODO(), botID)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return fiber.NewError(fiber.StatusNotFound, fmt.Sprintf("bot %s not found", botID))
+		}
+		return fmt.Errorf("get bot: %w", err)
+	}
+	c.Locals(BotLocalsKey, bot)
+	return c.Next()
+}
+
+// RoomMiddleware is a middleware for a room.
+func (server *Server) RoomMiddleware(c *fiber.Ctx) error {
+	bot := c.Locals(BotLocalsKey).(Bot)
+	roomID, err := primitive.ObjectIDFromHex(c.Params("room"))
+	if err != nil {
+		return fiber.NewError(fiber.StatusNotFound, fmt.Sprintf("room %s not found", c.Params("room")))
+	}
+	room, err := server.db.GetRoom(context.TODO(), roomID)
+	if err != nil || room.BotID != bot.ID {
+		if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
+			return fmt.Errorf("get room: %w", err)
+		}
+		return fiber.NewError(fiber.StatusNotFound, fmt.Sprintf("room %s not found", roomID))
+	}
+	c.Locals(RoomLocalsKey, room)
+	return c.Next()
+}
+
+func (server *Server) ClientTypeMiddleware(c *fiber.Ctx) error {
+	accessKey := c.Locals(AccessKeyLocalsKey).(string)
+	bot := c.Locals(BotLocalsKey).(Bot)
+	room := c.Locals(RoomLocalsKey).(Room)
+	var clientType ClientType
+	if accessKey == bot.AccessKey {
+		clientType = BotClient
+	} else if accessKey == room.AccessKey {
+		clientType = UserClient
+	}
+	c.Locals(ClientTypeLocalsKey, clientType)
+	return c.Next()
 }
 
 // ErrorHandler is an error handler which returns JSON formatted error message.

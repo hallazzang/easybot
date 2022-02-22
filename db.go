@@ -74,6 +74,21 @@ func (db *DB) GetBot(ctx context.Context, id primitive.ObjectID) (Bot, error) {
 	return bot, nil
 }
 
+// GetBots returns all bots.
+// TODO: use pagination
+func (db *DB) GetBots(ctx context.Context) ([]Bot, error) {
+	coll := db.Database().Collection(BotCollectionName)
+	cursor, err := coll.Find(ctx, bson.M{})
+	if err != nil {
+		return nil, fmt.Errorf("find: %w", err)
+	}
+	var bots []Bot
+	if err := cursor.All(ctx, &bots); err != nil {
+		return nil, fmt.Errorf("decode: %w", err)
+	}
+	return bots, nil
+}
+
 // CreateRoom creates a new room.
 func (db *DB) CreateRoom(ctx context.Context, botID primitive.ObjectID) (Room, error) {
 	coll := db.Database().Collection(RoomCollectionName)
@@ -100,6 +115,21 @@ func (db *DB) GetRoom(ctx context.Context, id primitive.ObjectID) (Room, error) 
 	return room, nil
 }
 
+// GetRooms returns all rooms.
+// TODO: use pagination
+func (db *DB) GetRooms(ctx context.Context, botID primitive.ObjectID) ([]Room, error) {
+	coll := db.Database().Collection(RoomCollectionName)
+	cursor, err := coll.Find(ctx, bson.M{RoomBotIDKey: botID})
+	if err != nil {
+		return nil, fmt.Errorf("find: %w", err)
+	}
+	var rooms []Room
+	if err := cursor.All(ctx, &rooms); err != nil {
+		return nil, fmt.Errorf("decode: %w", err)
+	}
+	return rooms, nil
+}
+
 // CreateMessages creates messages.
 func (db *DB) CreateMessages(ctx context.Context, msgs []Message) ([]Message, error) {
 	coll := db.Database().Collection(MessageCollectionName)
@@ -119,20 +149,8 @@ func (db *DB) CreateMessages(ctx context.Context, msgs []Message) ([]Message, er
 	return res, nil
 }
 
-func (db *DB) GetRooms(ctx context.Context, botID primitive.ObjectID) ([]Room, error) {
-	coll := db.Database().Collection(RoomCollectionName)
-	cursor, err := coll.Find(ctx, bson.M{RoomBotIDKey: botID})
-	if err != nil {
-		return nil, fmt.Errorf("find: %w", err)
-	}
-	var rooms []Room
-	if err := cursor.All(ctx, &rooms); err != nil {
-		return nil, fmt.Errorf("decode: %w", err)
-	}
-	return rooms, nil
-}
-
 // GetUnreadMessages returns messages with specific type.
+// TODO: use pagination
 func (db *DB) GetUnreadMessages(ctx context.Context, roomID primitive.ObjectID, msgType MessageType) ([]Message, error) {
 	coll := db.Database().Collection(MessageCollectionName)
 	cursor, err := coll.Find(ctx, bson.M{
@@ -151,6 +169,7 @@ func (db *DB) GetUnreadMessages(ctx context.Context, roomID primitive.ObjectID, 
 }
 
 // ReadMessages marks given messages as read.
+// TODO: use pagination
 func (db *DB) ReadMessages(ctx context.Context, msgs []Message) error {
 	coll := db.Database().Collection(MessageCollectionName)
 	var writes []mongo.WriteModel
