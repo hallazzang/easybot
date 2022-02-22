@@ -94,7 +94,7 @@ func NewCreateBotCmd() *cobra.Command {
 				desc = args[1]
 			}
 
-			cfg := client.DefaultClientConfig
+			cfg := client.DefaultConfig
 			if err := viper.UnmarshalKey("client", &cfg); err != nil {
 				return fmt.Errorf("unmarshal client config: %w", err)
 			}
@@ -124,7 +124,7 @@ func NewListBotsCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
 
-			cfg := client.DefaultClientConfig
+			cfg := client.DefaultConfig
 			if err := viper.UnmarshalKey("client", &cfg); err != nil {
 				return fmt.Errorf("unmarshal client config: %w", err)
 			}
@@ -160,7 +160,7 @@ func NewCreateRoomCmd() *cobra.Command {
 
 			botID := args[0]
 
-			cfg := client.DefaultClientConfig
+			cfg := client.DefaultConfig
 			if err := viper.UnmarshalKey("client", &cfg); err != nil {
 				return fmt.Errorf("unmarshal client config: %w", err)
 			}
@@ -192,7 +192,7 @@ func NewListRoomsCmd() *cobra.Command {
 
 			botID := args[0]
 
-			cfg := client.DefaultClientConfig
+			cfg := client.DefaultConfig
 			if err := viper.UnmarshalKey("client", &cfg); err != nil {
 				return fmt.Errorf("unmarshal client config: %w", err)
 			}
@@ -237,7 +237,7 @@ func NewReadCmd() *cobra.Command {
 				roomID = args[1]
 			}
 
-			cfg := client.DefaultClientConfig
+			cfg := client.DefaultConfig
 			if err := viper.UnmarshalKey("client", &cfg); err != nil {
 				return fmt.Errorf("unmarshal client config: %w", err)
 			}
@@ -290,7 +290,7 @@ func NewWriteCmd() *cobra.Command {
 			roomID := args[1]
 			text := args[2]
 
-			cfg := client.DefaultClientConfig
+			cfg := client.DefaultConfig
 			if err := viper.UnmarshalKey("client", &cfg); err != nil {
 				return fmt.Errorf("unmarshal client config: %w", err)
 			}
@@ -322,7 +322,7 @@ func NewInteractCmd() *cobra.Command {
 			botID := args[0]
 			roomID := args[1]
 
-			cfg := client.DefaultClientConfig
+			cfg := client.DefaultConfig
 			if err := viper.UnmarshalKey("client", &cfg); err != nil {
 				return fmt.Errorf("unmarshal client config: %w", err)
 			}

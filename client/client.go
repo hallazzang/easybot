@@ -22,7 +22,7 @@ func New(configs ...Config) (*Client, error) {
 	c := &Client{
 		httpClient: &http.Client{},
 	}
-	cfg := DefaultClientConfig
+	cfg := DefaultConfig
 	for _, c := range configs {
 		if c.ServerURL != "" {
 			cfg.ServerURL = c.ServerURL

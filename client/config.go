@@ -2,7 +2,7 @@ package client
 
 const DefaultServerURL = "http://localhost:8000"
 
-var DefaultClientConfig = Config{
+var DefaultConfig = Config{
 	ServerURL: DefaultServerURL,
 }
 
