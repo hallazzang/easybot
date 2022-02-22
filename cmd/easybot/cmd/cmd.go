@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/hallazzang/read"
 	"github.com/spf13/cobra"
 
 	"github.com/hallazzang/easybot"
@@ -26,6 +27,7 @@ func NewEasyBotCmd() *cobra.Command {
 		NewListRoomsCmd(),
 		NewReadCmd(),
 		NewWriteCmd(),
+		NewInteractCmd(),
 	)
 	return cmd
 }
@@ -266,6 +268,67 @@ func NewWriteCmd() *cobra.Command {
 			}
 
 			return nil
+		},
+	}
+	cmd.Flags().StringVarP(&accessKey, "access-key", "k", "", "Access key")
+	return cmd
+}
+
+func NewInteractCmd() *cobra.Command {
+	var accessKey string
+	cmd := &cobra.Command{
+		Use:   "interact [bot] [room]",
+		Short: "Interact within a room",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cmd.SilenceUsage = true
+
+			botID := args[0]
+			roomID := args[1]
+			if accessKey == "" {
+				accessKey = os.Getenv(AccessKeyEnvKey)
+			}
+			if accessKey == "" {
+				return fmt.Errorf("access key must be provided")
+			}
+
+			c, err := client.New(client.WithAccessKey(accessKey))
+			if err != nil {
+				return fmt.Errorf("access key must be provided")
+			}
+
+			room := c.Room(botID, roomID)
+			for {
+				fmt.Print("text> ")
+				text, err := read.Line()
+				if err != nil {
+					return fmt.Errorf("read line: %w", err)
+				}
+
+				if err := room.WriteMessages(context.TODO(), []easybot.MessageRequest{
+					{Text: text},
+				}); err != nil {
+					return fmt.Errorf("write messages: %w", err)
+				}
+
+				for {
+					time.Sleep(100 * time.Millisecond)
+
+					msgs, err := room.ReadMessages(context.TODO(), false)
+					if err != nil {
+						return fmt.Errorf("read messages: %w", err)
+					}
+
+					received := false
+					for _, msg := range msgs {
+						fmt.Printf("received: %s\n", msg.Text)
+						received = true
+					}
+					if received {
+						break
+					}
+				}
+			}
 		},
 	}
 	cmd.Flags().StringVarP(&accessKey, "access-key", "k", "", "Access key")

@@ -5,6 +5,7 @@ go 1.17
 require (
 	github.com/gofiber/fiber/v2 v2.27.0
 	github.com/google/uuid v1.1.2
+	github.com/hallazzang/read v0.0.0-20220221050044-9f245d3f28a2
 	github.com/spf13/cobra v1.3.0
 	go.mongodb.org/mongo-driver v1.8.3
 )
