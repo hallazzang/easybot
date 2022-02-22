@@ -187,12 +187,15 @@ func NewReadCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "read [bot] [room]",
 		Short: "Read messages",
-		Args:  cobra.ExactArgs(2),
+		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
 
 			botID := args[0]
-			roomID := args[1]
+			var roomID string
+			if len(args) > 1 {
+				roomID = args[1]
+			}
 			if accessKey == "" {
 				accessKey = os.Getenv(AccessKeyEnvKey)
 			}
@@ -204,14 +207,27 @@ func NewReadCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("new client: %w", err)
 			}
-			msgs, err := c.Room(botID, roomID).ReadMessages(context.TODO(), peek)
-			if err != nil {
-				return fmt.Errorf("read messages: %w", err)
-			}
-			fmt.Println("Created          Text")
-			fmt.Println("---------------  ----")
-			for _, msg := range msgs {
-				fmt.Printf("%15s  %s\n", msg.CreatedAt.In(time.Local).Format(time.Stamp), msg.Text)
+			var msgs []easybot.MessageResponse
+			if roomID == "" {
+				msgs, err = c.Bot(botID).ReadMessages(context.TODO(), peek)
+				if err != nil {
+					return fmt.Errorf("read messages: %w", err)
+				}
+				fmt.Println("Room                      Created          Text")
+				fmt.Println("------------------------  ---------------  ----")
+				for _, msg := range msgs {
+					fmt.Printf("%24s  %15s  %s\n", msg.RoomID.Hex(), msg.CreatedAt.In(time.Local).Format(time.Stamp), msg.Text)
+				}
+			} else {
+				msgs, err = c.Room(botID, roomID).ReadMessages(context.TODO(), peek)
+				if err != nil {
+					return fmt.Errorf("read messages: %w", err)
+				}
+				fmt.Println("Created          Text")
+				fmt.Println("---------------  ----")
+				for _, msg := range msgs {
+					fmt.Printf("%15s  %s\n", msg.CreatedAt.In(time.Local).Format(time.Stamp), msg.Text)
+				}
 			}
 
 			return nil
