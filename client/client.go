@@ -234,7 +234,7 @@ func (room *Room) ReadMessages(ctx context.Context, peek bool) ([]easybot.Messag
 	return room.c.readMessages(ctx, u.String(), room.AccessKey)
 }
 
-func (room *Room) WriteMessages(ctx context.Context, msgs []easybot.Message) error {
+func (room *Room) WriteMessages(ctx context.Context, msgs []easybot.MessageRequest) error {
 	payload, _ := json.Marshal(map[string]interface{}{"messages": msgs})
 	u, _ := room.c.serverURL.Parse(fmt.Sprintf("bots/%s/rooms/%s/messages", room.BotID, room.ID))
 	req, _ := http.NewRequest("POST", u.String(), bytes.NewReader(payload))
