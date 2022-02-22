@@ -129,13 +129,14 @@ type Bot struct {
 	ID        string
 }
 
-func (c *Client) CreateBot(name, description string) (*Bot, error) {
+func (c *Client) CreateBot(ctx context.Context, name, description string) (*Bot, error) {
 	u, _ := c.serverURL.Parse("bots")
 	payload, _ := json.Marshal(map[string]interface{}{
 		"name":        name,
 		"description": description,
 	})
 	req, _ := http.NewRequest("POST", u.String(), bytes.NewReader(payload))
+	req = req.WithContext(ctx)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

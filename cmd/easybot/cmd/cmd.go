@@ -79,7 +79,7 @@ func NewCreateBotCmd() *cobra.Command {
 				return fmt.Errorf("new client: %w", err)
 			}
 
-			bot, err := c.CreateBot(name, desc)
+			bot, err := c.CreateBot(context.TODO(), name, desc)
 			if err != nil {
 				return fmt.Errorf("create bot: %w", err)
 			}
@@ -261,7 +261,7 @@ func NewWriteCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("new client: %w", err)
 			}
-			if err := c.Room(botID, roomID).WriteMessages(context.TODO(), []easybot.Message{{Text: text}}); err != nil {
+			if err := c.Room(botID, roomID).WriteMessages(context.TODO(), []easybot.MessageRequest{{Text: text}}); err != nil {
 				return fmt.Errorf("write messages: %w", err)
 			}
 
